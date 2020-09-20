@@ -213,8 +213,11 @@ def evaluate(args, **options):
                     # matches = data['matches']
                     print("matches: ", matches.shape)
                     print("mscores: ", mscores.shape)
-                    print("mscore max: ", mscores.max(axis=0))
-                    print("mscore min: ", mscores.min(axis=0))
+                    try:
+                        print("mscore max: ", mscores.max(axis=0))
+                        print("mscore min: ", mscores.min(axis=0))
+                    except ValueError:
+                        pass
 
                     return matches, mscores
 
@@ -286,7 +289,7 @@ def evaluate(args, **options):
                     m_flip = flipArr(mscores[:,2])
         
                 if inliers.shape[0] > 0 and inliers.sum()>0:
-#                     m_flip = flipArr(m_flip)
+                    # m_flip = flipArr(m_flip)
                     # compute ap
                     ap = computeAP(inliers, m_flip)
                 else:
@@ -330,10 +333,11 @@ def evaluate(args, **options):
                 result['image1'] = image
                 result['image2'] = warped_image
                 matches = np.array(result['cv2_matches'])
-                ratio = 0.2
-                ran_idx = np.random.choice(matches.shape[0], int(matches.shape[0]*ratio))
+                # ratio = 0.2
+                # ran_idx = np.random.choice(matches.shape[0], int(matches.shape[0]*ratio))
 
-                img = draw_matches_cv(result, matches[ran_idx], plot_points=True)
+                # img = draw_matches_cv(result, matches[ran_idx], plot_points=True)
+                img = draw_matches_cv(result, matches, plot_points=True)
                 # filename = "correspondence_visualization"
                 plot_imgs([img], titles=["Two images feature correspondences"], dpi=200)
                 plt.tight_layout()
@@ -346,7 +350,7 @@ def evaluate(args, **options):
             if matches.shape[0] > 0:
                 from utils.draw import draw_matches
                 filename = path_match + '/' + f_num + 'm.png'
-                ratio = 0.1
+                # ratio = 0.1
                 inliers = result['inliers']
 
                 matches_in = matches[inliers == True]
@@ -358,12 +362,12 @@ def evaluate(args, **options):
                 image = data['image']
                 warped_image = data['warped_image']
                 ## outliers
-                matches_temp, _ = get_random_m(matches_out, ratio)
+                # matches_temp, _ = get_random_m(matches_out, ratio)
                 # print(f"matches_in: {matches_in.shape}, matches_temp: {matches_temp.shape}")
                 draw_matches(image, warped_image, matches_temp, lw=0.5, color='r',
                             filename=None, show=False, if_fig=True)
                 ## inliers
-                matches_temp, _ = get_random_m(matches_in, ratio)
+                # matches_temp, _ = get_random_m(matches_in, ratio)
                 draw_matches(image, warped_image, matches_temp, lw=1.0, 
                         filename=filename, show=False, if_fig=False)
 

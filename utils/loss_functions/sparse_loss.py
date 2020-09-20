@@ -54,6 +54,64 @@ def create_non_matches(uv_a, uv_b_non_matches, multiplier):
 
     return uv_a_long, uv_b_non_matches_long
 
+def uv_to_tuple(uv):
+    return (uv[:, 0], uv[:, 1])
+
+def tuple_to_uv(uv_tuple):
+    return torch.stack([uv_tuple[0], uv_tuple[1]])
+
+def tuple_to_1d(uv_tuple, W, uv=True):
+    if uv:
+        return uv_tuple[0] + uv_tuple[1]*W
+    else:
+        return uv_tuple[0]*W + uv_tuple[1]
+
+def uv_to_1d(points, W, uv=True):
+    # assert points.dim == 2
+    #     print("points: ", points[0])
+    #     print("H: ", H)
+    if uv:
+        return points[..., 0] + points[..., 1]*W
+    else:
+        return points[..., 0]*W + points[..., 1]
+
+def get_non_matches_corr(img_b_shape, uv_a, uv_b_matches, num_masked_non_matches_per_match=10, device='cpu'):
+    ## sample non matches
+    uv_b_matches = uv_b_matches.squeeze()
+    uv_b_matches_tuple = uv_to_tuple(uv_b_matches)
+    uv_b_non_matches_tuple = correspondence_finder.create_non_correspondences(uv_b_matches_tuple,
+                                    img_b_shape, num_non_matches_per_match=num_masked_non_matches_per_match,
+                                    img_b_mask=None)
+
+    ## create_non_correspondences
+    #     print("img_b_shape ", img_b_shape)
+    #     print("uv_b_matches ", uv_b_matches.shape)
+    # print("uv_a: ", uv_to_tuple(uv_a))
+    # print("uv_b_non_matches: ", uv_b_non_matches)
+    #     print("uv_b_non_matches: ", tensorUv2tuple(uv_b_non_matches))
+    uv_a_tuple, uv_b_non_matches_tuple = \
+        create_non_matches(uv_to_tuple(uv_a), uv_b_non_matches_tuple, num_masked_non_matches_per_match)
+    return uv_a_tuple, uv_b_non_matches_tuple
+
+def get_first_term_corr(img_b_shape, uv_a, uv_b_matches, num_masked_non_matches_per_match=10, device='cpu'):
+    ## sample non matches
+    uv_b_matches = uv_b_matches.squeeze()
+    uv_b_matches_tuple = uv_to_tuple(uv_b_matches)
+    uv_b_non_matches_tuple = correspondence_finder.create_non_correspondences(uv_b_matches_tuple,
+                                    img_b_shape, num_non_matches_per_match=num_masked_non_matches_per_match,
+                                    img_b_mask=None)
+
+    uv_b_long = (torch.t(uv_b_matches_tuple[0].repeat(num_masked_non_matches_per_match, 1)).contiguous().view(-1, 1),
+                 torch.t(uv_b_matches_tuple[1].repeat(num_masked_non_matches_per_match, 1)).contiguous().view(-1, 1))
+
+    uv_a_tuple, uv_b_non_matches_tuple = \
+        create_non_matches(uv_to_tuple(uv_a), uv_b_non_matches_tuple, num_masked_non_matches_per_match)
+    return uv_a_tuple, uv_b_long, uv_b_non_matches_tuple
+
+def descriptor_reshape(descriptors, Hc, Wc):
+    descriptors = descriptors.view(-1, Hc * Wc).transpose(0, 1)  # torch [D, H, W] --> [H*W, d]
+    descriptors = descriptors.unsqueeze(0)  # torch [1, H*W, D]
+    return descriptors
 
 def descriptor_loss_sparse(descriptors, descriptors_warped, homographies, mask_valid=None,
                            cell_size=8, device='cpu', descriptor_dist=4, lamda_d=250,
@@ -69,52 +127,12 @@ def descriptor_loss_sparse(descriptors, descriptors_warped, homographies, mask_v
         tensor [descriptors, Hc, Wc]
     """
 
-    def uv_to_tuple(uv):
-        return (uv[:, 0], uv[:, 1])
-
-    def tuple_to_uv(uv_tuple):
-        return torch.stack([uv_tuple[0], uv_tuple[1]])
-
-    def tuple_to_1d(uv_tuple, W, uv=True):
-        if uv:
-            return uv_tuple[0] + uv_tuple[1]*W
-        else:
-            return uv_tuple[0]*W + uv_tuple[1]
-
-
-    def uv_to_1d(points, W, uv=True):
-        # assert points.dim == 2
-        #     print("points: ", points[0])
-        #     print("H: ", H)
-        if uv:
-            return points[..., 0] + points[..., 1]*W
-        else:
-            return points[..., 0]*W + points[..., 1]
-
     ## calculate matches loss
     def get_match_loss(image_a_pred, image_b_pred, matches_a, matches_b, dist='cos', method='1d'):
         match_loss, matches_a_descriptors, matches_b_descriptors = \
             PixelwiseContrastiveLoss.match_loss(image_a_pred, image_b_pred, 
                 matches_a, matches_b, dist=dist, method=method)
         return match_loss
-
-    def get_non_matches_corr(img_b_shape, uv_a, uv_b_matches, num_masked_non_matches_per_match=10, device='cpu'):
-        ## sample non matches
-        uv_b_matches = uv_b_matches.squeeze()
-        uv_b_matches_tuple = uv_to_tuple(uv_b_matches)
-        uv_b_non_matches_tuple = correspondence_finder.create_non_correspondences(uv_b_matches_tuple,
-                                        img_b_shape, num_non_matches_per_match=num_masked_non_matches_per_match,
-                                        img_b_mask=None)
-
-        ## create_non_correspondences
-        #     print("img_b_shape ", img_b_shape)
-        #     print("uv_b_matches ", uv_b_matches.shape)
-        # print("uv_a: ", uv_to_tuple(uv_a))
-        # print("uv_b_non_matches: ", uv_b_non_matches)
-        #     print("uv_b_non_matches: ", tensorUv2tuple(uv_b_non_matches))
-        uv_a_tuple, uv_b_non_matches_tuple = \
-            create_non_matches(uv_to_tuple(uv_a), uv_b_non_matches_tuple, num_masked_non_matches_per_match)
-        return uv_a_tuple, uv_b_non_matches_tuple
 
     def get_non_match_loss(image_a_pred, image_b_pred, non_matches_a, non_matches_b, dist='cos'):
         ## non matches loss
@@ -141,14 +159,10 @@ def descriptor_loss_sparse(descriptors, descriptors_warped, homographies, mask_v
     # img_shape_cpu = (Hc.to('cpu'), Wc.to('cpu'))
 
     # image_a_pred = descriptors.view(1, -1, Hc * Wc).transpose(1, 2)  # torch [batch_size, H*W, D]
-    def descriptor_reshape(descriptors):
-        descriptors = descriptors.view(-1, Hc * Wc).transpose(0, 1)  # torch [D, H, W] --> [H*W, d]
-        descriptors = descriptors.unsqueeze(0)  # torch [1, H*W, D]
-        return descriptors
 
-    image_a_pred = descriptor_reshape(descriptors)  # torch [1, H*W, D]
+    image_a_pred = descriptor_reshape(descriptors, Hc, Wc)  # torch [1, H*W, D]
     # print("image_a_pred: ", image_a_pred.shape)
-    image_b_pred = descriptor_reshape(descriptors_warped)  # torch [batch_size, H*W, D]
+    image_b_pred = descriptor_reshape(descriptors_warped, Hc, Wc)  # torch [batch_size, H*W, D]
 
     # matches
     uv_a = get_coor_cells(Hc, Wc, cell_size, uv=True, device='cpu')
@@ -232,13 +246,131 @@ pltImshow(img.numpy())
 
 """
 
+def quadruplet_descriptor_loss_sparse(descriptors, descriptors_warped, homographies, mask_valid=None,
+                           cell_size=8, device='cpu', descriptor_dist=4, lamda_d=250,
+                           num_matching_attempts=1000, num_masked_non_matches_per_match=10, 
+                           dist='cos', method='1d', **config):
+    """
+    consider batches of descriptors
+    :param descriptors:
+        Output from descriptor head
+        tensor [descriptors, Hc, Wc]
+    :param descriptors_warped:
+        Output from descriptor head of warped image
+        tensor [descriptors, Hc, Wc]
+    """
+
+    from utils.utils import filter_points
+    from utils.utils import crop_or_pad_choice
+    from utils.utils import normPts
+    # ##### print configs
+    # print("num_masked_non_matches_per_match: ", num_masked_non_matches_per_match)
+    # print("num_matching_attempts: ", num_matching_attempts)
+    # dist = 'cos'
+    # print("method: ", method)
+
+    Hc, Wc, Dim = descriptors.shape[1], descriptors.shape[2], descriptors.shape[0]
+    img_shape = (Hc, Wc)
+    # print("img_shape: ", img_shape)
+    # img_shape_cpu = (Hc.to('cpu'), Wc.to('cpu'))
+
+    # image_a_pred = descriptors.view(1, -1, Hc * Wc).transpose(1, 2)  # torch [batch_size, H*W, D]
+
+    image_a_pred = descriptor_reshape(descriptors, Hc, Wc)  # torch [1, H*W, D]
+    # print("image_a_pred: ", image_a_pred.shape)
+    image_b_pred = descriptor_reshape(descriptors_warped, Hc, Wc)  # torch [batch_size, H*W, D]
+
+    # matches
+    uv_a = get_coor_cells(Hc, Wc, cell_size, uv=True, device='cpu')
+    # print("uv_a: ", uv_a[0])
+
+    homographies_H = scale_homography_torch(homographies, img_shape, shift=(-1, -1))
+
+    # print("experiment inverse homographies")
+    # homographies_H = torch.stack([torch.inverse(H) for H in homographies_H])
+    # print("homographies_H: ", homographies_H.shape)
+    # homographies_H = torch.inverse(homographies_H)
+
+
+    uv_b_matches = warp_coor_cells_with_homographies(uv_a, homographies_H.to('cpu'), uv=True, device='cpu')
+    # 
+    # print("uv_b_matches before round: ", uv_b_matches[0])
+
+    uv_b_matches.round_() 
+    # print("uv_b_matches after round: ", uv_b_matches[0])
+    uv_b_matches = uv_b_matches.squeeze(0)
+
+
+    # filtering out of range points
+    # choice = crop_or_pad_choice(x_all.shape[0], self.sift_num, shuffle=True)
+
+    uv_b_matches, mask = filter_points(uv_b_matches, torch.tensor([Wc, Hc]).to(device='cpu'), return_mask=True)
+    # print ("pos mask sum: ", mask.sum())
+    uv_a = uv_a[mask]
+
+    # crop to the same length
+    shuffle = True
+    if not shuffle: print("shuffle: ", shuffle)
+    choice = crop_or_pad_choice(uv_b_matches.shape[0], num_matching_attempts, shuffle=shuffle)
+    choice = torch.tensor(choice)
+    uv_a = uv_a[choice]
+    uv_b_matches = uv_b_matches[choice]
+
+    matches_a = normPts(uv_a, torch.tensor([Wc, Hc]).float()) # [u, v]
+    matches_b = normPts(uv_b_matches, torch.tensor([Wc, Hc]).float())
+
+    # print("matches_a: ", matches_a.shape)
+    # print("matches_b: ", matches_b.shape)
+    # print("matches_b max: ", matches_b.max())
+
+    # non matches
+    # get non matches correspondence
+    uv_a_tuple, uv_b_matches_tuple, uv_b_non_matches_tuple = get_first_term_corr(img_shape,
+                                            uv_a, uv_b_matches,
+                                            num_masked_non_matches_per_match=num_masked_non_matches_per_match)
+
+    non_matches_a = tuple_to_1d(uv_a_tuple, Wc)
+    long_matches_b = tuple_to_1d(uv_b_matches_tuple, Wc)
+    non_matches_b = tuple_to_1d(uv_b_non_matches_tuple, Wc)
+
+    non_matches_a_descriptors = torch.index_select(image_a_pred, 1, non_matches_a.to(device).long().squeeze()).squeeze()
+    non_matches_b_descriptors = torch.index_select(image_b_pred, 1, non_matches_b.to(device).long().squeeze()).squeeze()
+    long_matches_b_descriptors = torch.index_select(image_b_pred, 1, long_matches_b.to(device).long().squeeze()).squeeze()
+
+    all_neg_pairs = (non_matches_a_descriptors - non_matches_b_descriptors).pow(2).sum(dim=-1)
+    all_pos_pairs = (non_matches_a_descriptors - long_matches_b_descriptors).pow(2).sum(dim=-1)
+
+    alpha = (all_neg_pairs.sum() - all_pos_pairs.sum())/(num_matching_attempts*num_masked_non_matches_per_match)
+
+    first_term = torch.clamp(all_pos_pairs - all_neg_pairs + alpha, min=0).sum()/(num_matching_attempts*num_masked_non_matches_per_match)
+
+    pos_matches_a = non_matches_a_descriptors.reshape((num_matching_attempts, num_masked_non_matches_per_match, Dim)).repeat(1, num_masked_non_matches_per_match, 1).reshape((-1, Dim))
+    pos_matches_b = long_matches_b_descriptors.reshape((num_matching_attempts, num_masked_non_matches_per_match, Dim)).repeat(1, num_masked_non_matches_per_match, 1).reshape((-1, Dim))
+
+    neg_matches_b = non_matches_b_descriptors.reshape((num_matching_attempts, num_masked_non_matches_per_match, 1, Dim)).repeat(1, 1, num_masked_non_matches_per_match, 1).reshape((-1, Dim))
+    neg_matches_b_permute = non_matches_b_descriptors.reshape((num_matching_attempts, 1, num_masked_non_matches_per_match, Dim)).repeat(1, num_masked_non_matches_per_match, 1, 1).reshape((-1, Dim))
+
+    pos_matches = (pos_matches_a - pos_matches_b).pow(2).sum(dim=-1)
+    neg_matches = (neg_matches_b - neg_matches_b_permute).pow(2).sum(dim=-1)
+
+    match_mask = (torch.ones(num_masked_non_matches_per_match, num_masked_non_matches_per_match) - torch.eye(num_masked_non_matches_per_match)).repeat(num_matching_attempts, 1, 1).flatten().to(device)
+
+    second_term = (torch.clamp((pos_matches - neg_matches)*match_mask + 0.5*alpha, min=0)/(num_masked_non_matches_per_match*(num_masked_non_matches_per_match-1)*num_matching_attempts)).sum()
+
+    # non_match_loss = non_match_loss.mean()
+
+    loss = lamda_d * first_term + second_term
+    return loss, lamda_d * first_term, second_term
+
+
 def batch_descriptor_loss_sparse(descriptors, descriptors_warped, homographies, **options):
     loss = []
     pos_loss = []
     neg_loss = []
     batch_size = descriptors.shape[0]
     for i in range(batch_size):
-        losses = descriptor_loss_sparse(descriptors[i], descriptors_warped[i],
+        # losses = descriptor_loss_sparse(descriptors[i], descriptors_warped[i],
+        losses = quadruplet_descriptor_loss_sparse(descriptors[i], descriptors_warped[i],
                     # torch.tensor(homographies[i], dtype=torch.float32), **options)
                     homographies[i].type(torch.float32), **options)
         loss.append(losses[0])
